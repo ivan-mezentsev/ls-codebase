@@ -30,5 +30,5 @@ try:
 	float(balance)
 	print balance;
 except:
-	print "No valid balance string found. Sipnet html changed or no login/password is incorrect"
+	print "No valid balance string found. Sipnet html changed or login/password is incorrect"
 	sys.exit()
