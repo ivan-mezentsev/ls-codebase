@@ -1,0 +1,160 @@
+#!/bin/bash
+
+
+#                           #
+# Simple traffic accounting #
+#                           #
+
+### Usage:
+### It's very simple traff accouting using iptables, it generates 4 chains and creates jump rules for them.
+### By calling "count" it prints current counters for every rule in counting chains.
+### Forward chain can be counted by ip and validated by mac, like in any iptables rules - you can drop any
+### non valid packets in forward chain i.e. validate users by mac.
+###
+### For basic usage you need to setup your interface here and it will count all traffic IN,OUT,FWD_IN,FWD_OUT
+### For advanced usage you can modify start() function
+IF_EXT=eth2
+IPTABLES=/sbin/iptables
+
+
+function check(){
+if [ `$IPTABLES -L TRAFFIC_LOCAL_IN -v -n | grep Chain | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+
+if [ `$IPTABLES -L TRAFFIC_LOCAL_OUT -v -n | grep Chain | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+if [ `$IPTABLES -L TRAFFIC_FORWARD_IN -v -n | grep Chain | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+if [ `$IPTABLES -L TRAFFIC_FORWARD_OUT -v -n | grep Chain |wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+if [ `$IPTABLES -L INPUT -v -n | grep TRAFFIC_LOCAL_IN | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+if [ `$IPTABLES -L OUTPUT -v -n | grep TRAFFIC_LOCAL_OUT | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+if [ `$IPTABLES -L FORWARD -v -n | grep TRAFFIC_FORWARD_IN | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+if [ `$IPTABLES -L FORWARD -v -n | grep TRAFFIC_FORWARD_OUT | wc -l` = 0 ]; then
+    echo "0"
+    return 0
+fi
+echo "1"
+return 1
+}
+function stop(){
+
+
+INPUT=`$IPTABLES -L INPUT -v -n --line-numbers | grep TRAFFIC_LOCAL_IN | awk '{ print $1 }'`
+OUTPUT=`$IPTABLES -L OUTPUT -v -n --line-numbers | grep TRAFFIC_LOCAL_OUT | awk '{ print $1 }'`
+F_INPUT=`$IPTABLES -L FORWARD -v -n --line-numbers | grep TRAFFIC_FORWARD_IN | awk '{ print $1 }'`
+F_OUTPUT=`$IPTABLES -L FORWARD -v -n --line-numbers | grep TRAFFIC_FORWARD_OUT | awk '{ print $1 }'`
+
+if [  $INPUT ]; then
+    iptables -D INPUT $INPUT
+fi
+if [ $OUTPUT ]; then
+    iptables -D OUTPUT $OUTPUT
+fi
+if [ $F_INPUT ]; then
+    iptables -D FORWARD $F_INPUT
+fi
+if [ $F_OUTPUT ]; then
+    iptables -D FORWARD $F_OUTPUT
+fi
+
+$IPTABLES -F TRAFFIC_LOCAL_IN
+$IPTABLES -F TRAFFIC_LOCAL_OUT
+$IPTABLES -F TRAFFIC_FORWARD_IN
+$IPTABLES -F TRAFFIC_FORWARD_OUT
+
+$IPTABLES -X TRAFFIC_LOCAL_IN
+$IPTABLES -X TRAFFIC_LOCAL_OUT
+$IPTABLES -X TRAFFIC_FORWARD_IN
+$IPTABLES -X TRAFFIC_FORWARD_OUT
+}
+function start(){
+$IPTABLES -N TRAFFIC_LOCAL_IN
+$IPTABLES -A TRAFFIC_LOCAL_IN -j RETURN
+
+$IPTABLES -N TRAFFIC_LOCAL_OUT
+$IPTABLES -A TRAFFIC_LOCAL_OUT -j RETURN
+
+$IPTABLES -N TRAFFIC_FORWARD_IN
+$IPTABLES -A TRAFFIC_FORWARD_IN -j RETURN
+
+$IPTABLES -N TRAFFIC_FORWARD_OUT
+$IPTABLES -A TRAFFIC_FORWARD_OUT -j RETURN
+
+
+$IPTABLES -I INPUT -i $IF_EXT -j TRAFFIC_LOCAL_IN
+$IPTABLES -I OUTPUT -o $IF_EXT -j TRAFFIC_LOCAL_OUT
+$IPTABLES -I FORWARD -i $IF_EXT -j TRAFFIC_FORWARD_IN
+$IPTABLES -I FORWARD -o $IF_EXT -j TRAFFIC_FORWARD_OUT
+}
+function init(){
+echo "Ignore all \"no chain\" errors"
+stop
+start
+}
+
+function count(){
+echo "###############################"
+echo "Local inbound traffic:" 
+$IPTABLES -L TRAFFIC_LOCAL_IN -n -v -x | awk '$1 ~ /^[0-9]+$/ { printf "IP: %s, %d bytes\n", $8, $2 }'
+echo "Local outbound traffic:" 
+$IPTABLES -L TRAFFIC_LOCAL_OUT -n -v -x | awk '$1 ~ /^[0-9]+$/ { printf "IP: %s, %d bytes\n", $8, $2 }'
+echo "Forwared inbound traffic:" 
+$IPTABLES -L TRAFFIC_FORWARD_IN -n -v -x | awk '$1 ~ /^[0-9]+$/ { printf "IP: %s, %d bytes\n", $9, $2 }'
+echo "Forwarded outbound traffic:"
+$IPTABLES -L TRAFFIC_FORWARD_OUT -n -v -x | awk '$1 ~ /^[0-9]+$/ { printf "IP: %s, %d bytes\n", $8, $2 }'
+echo "###############################"
+}
+
+function reset(){
+$IPTABLES -Z TRAFFIC_LOCAL_IN
+$IPTABLES -Z TRAFFIC_LOCAL_OUT
+$IPTABLES -Z TRAFFIC_FORWARD_IN
+$IPTABLES -Z TRAFFIC_FORWARD_OUT
+}
+
+function print_usage(){
+echo "  Usage:"
+echo "          start           Initialize iptables count chains"
+echo "          stop            Delete chains"
+echo "          check           Check if all chains exists"
+echo "          count           Print current counters"
+echo "          reset           Reset counters to zero"
+}
+
+if [ -z "$1" ]; then
+    print_usage
+    exit
+fi
+
+if [ "$1" = "start" ]; then
+    init
+elif [ $1 = "count" ]; then
+    count
+elif [ $1 = "reset" ]; then
+    reset
+elif [ $1 = "check" ]; then
+    check
+elif [ $1 = "stop" ]; then
+    stop
+else
+    print_usage
+    exit
+fi
